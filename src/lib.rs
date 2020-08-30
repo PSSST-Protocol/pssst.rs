@@ -4,7 +4,7 @@
 
 #![forbid(unsafe_code, future_incompatible, rust_2018_idioms)]
 #![deny(nonstandard_style)]
-#![warn(missing_docs, missing_doc_code_examples, unreachable_pub)]
+//#![warn(missing_docs, missing_doc_code_examples, unreachable_pub)]
 
 use aes_gcm::{AeadInPlace, Aes128Gcm, NewAead};
 use byteorder::{BigEndian, ByteOrder};
@@ -152,7 +152,6 @@ impl ClientReplyHandler {
         let cipher_len = body.len() - AEAD_TAG_LEN;
         output[..cipher_len].clone_from_slice(&body[..cipher_len]);
         let tag = &body[cipher_len..];
-        println!("tag {:?}", tag);
 
         let aesgcm = aes_gcm::Aes128Gcm::new(self.keyblock.aes().into());
         aesgcm
@@ -186,7 +185,6 @@ impl KeyBlock {
 
 fn kdf(dh_param: &[u8], shared_secret: &SharedSecret) -> KeyBlock {
     let mut kb = KeyBlock([0u8; 48]);
-    println!("kdf: {:?} {:?}", dh_param, shared_secret.as_bytes());
 
     let mut h = Sha384::new();
     h.update(dh_param);
@@ -289,12 +287,8 @@ impl Client {
             )
             .expect("encryption failed");
 
-        println!("tag {:?}", tag);
         output[end_offset..end_offset + tag.len()].clone_from_slice(&tag);
         end_offset += tag.len();
-
-        println!("result: {:?}", &output[..end_offset]);
-        println!("--- client ends ---\n");
 
         Ok((
             &output[..end_offset],
@@ -339,9 +333,6 @@ impl ServerReplier {
 
         output[end_offset..end_offset + tag.len()].clone_from_slice(&tag);
         end_offset += tag.len();
-
-        println!("result: {:?}", &output[..end_offset]);
-        println!("--- server reply ends ---\n");
 
         Ok(&output[..end_offset])
     }
@@ -405,12 +396,9 @@ impl Server {
             return Err(Error::InsufficientBuffer(body.len()));
         }
 
-        println!("cipher: {:?}", body);
-
         let cipher_len = body.len() - AEAD_TAG_LEN;
         output[..cipher_len].clone_from_slice(&body[..cipher_len]);
         let tag = &body[cipher_len..];
-        println!("tag {:?}", tag);
 
         let aesgcm = Aes128Gcm::new(keyblock.aes().into());
         aesgcm
@@ -449,8 +437,6 @@ impl Server {
         } else {
             (&output[..cipher_len], None)
         };
-
-        println!("--- server recv ends ---\n");
 
         Ok((
             ServerReceivedRequest {
