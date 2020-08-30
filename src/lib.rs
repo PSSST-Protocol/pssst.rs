@@ -8,10 +8,10 @@
 
 use aes_gcm::{AeadInPlace, Aes128Gcm, NewAead};
 use byteorder::{BigEndian, ByteOrder};
+use hacl_star::curve25519;
 use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha384};
 use subtle::ConstantTimeEq;
-use hacl_star::curve25519;
 
 use std::convert::TryInto;
 
@@ -441,10 +441,7 @@ impl Server {
                 return Err(Error::ClientAuthFailed);
             }
 
-            (
-                &output[proof_size..cipher_len],
-                Some(client_public.0),
-            )
+            (&output[proof_size..cipher_len], Some(client_public.0))
         } else {
             (&output[..cipher_len], None)
         };
