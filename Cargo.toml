@@ -18,7 +18,7 @@ authors = [
 [dependencies]
 byteorder = "1"
 rand_core = { version = "0.5", default-features = false, features = ["getrandom"] }
-x25519-dalek = "1"
+hacl-star = "0.1"
 aes-gcm = "0.6"
 sha2 = "0.9"
 subtle = "2"

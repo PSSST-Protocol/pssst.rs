@@ -8,10 +8,10 @@
 
 use aes_gcm::{AeadInPlace, Aes128Gcm, NewAead};
 use byteorder::{BigEndian, ByteOrder};
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use sha2::{Digest, Sha384};
 use subtle::ConstantTimeEq;
-use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret, StaticSecret};
+use hacl_star::curve25519;
 
 use std::convert::TryInto;
 
@@ -128,8 +128,8 @@ impl Header {
 
 pub struct Client {
     suite: Ciphersuite,
-    client_auth: Option<(PublicKey, SharedSecret)>,
-    server: PublicKey,
+    client_auth: Option<(curve25519::PublicKey, curve25519::PublicKey)>,
+    server: curve25519::PublicKey,
 }
 
 pub struct ClientReplyHandler {
@@ -183,14 +183,28 @@ impl KeyBlock {
     }
 }
 
-fn kdf(dh_param: &[u8], shared_secret: &SharedSecret) -> KeyBlock {
+fn kdf(dh_param: &[u8], shared_secret: &curve25519::PublicKey) -> KeyBlock {
     let mut kb = KeyBlock([0u8; 48]);
 
     let mut h = Sha384::new();
     h.update(dh_param);
-    h.update(shared_secret.as_bytes());
+    h.update(shared_secret.0);
     kb.0.clone_from_slice(&h.finalize());
     kb
+}
+
+fn x25519_generate() -> (curve25519::PublicKey, curve25519::SecretKey) {
+    let mut seed = [0u8; 32];
+    OsRng.fill_bytes(&mut seed);
+    let secret = curve25519::SecretKey(curve25519::secretkey(&seed).0);
+    let public = secret.get_public();
+    (public, secret)
+}
+
+fn x25519_agree(d: &curve25519::SecretKey, q: &curve25519::PublicKey) -> curve25519::PublicKey {
+    let mut z = curve25519::PublicKey([0u8; 32]);
+    d.exchange(q, &mut z.0);
+    z
 }
 
 impl Client {
@@ -198,20 +212,19 @@ impl Client {
         Client {
             suite: Ciphersuite::X25519_AESGCM128,
             client_auth: None,
-            server: PublicKey::from(*server),
+            server: curve25519::PublicKey(*server),
         }
     }
 
     pub fn generate(server: &[u8; KX_PUB_LEN]) -> Client {
-        let client_secret = StaticSecret::new(OsRng);
-        let client_public = PublicKey::from(&client_secret);
-        let server_pub = PublicKey::from(*server);
-        let client_server_kx = client_secret.diffie_hellman(&server_pub);
+        let (public, secret) = x25519_generate();
+        let server_pub = curve25519::PublicKey(*server);
+        let client_server_kx = x25519_agree(&secret, &server_pub);
 
         Client {
             suite: Ciphersuite::X25519_AESGCM128,
-            client_auth: Some((client_public, client_server_kx)),
-            server: PublicKey::from(*server),
+            client_auth: Some((public, client_server_kx)),
+            server: curve25519::PublicKey(*server),
         }
     }
 
@@ -245,28 +258,25 @@ impl Client {
         let start_message = offset;
 
         let shared_secret = if let Some((client_public, client_server_kx)) = &self.client_auth {
-            let ppk = StaticSecret::new(OsRng);
+            let (_, ppk) = x25519_generate();
 
-            let client_server_kx = PublicKey::from(client_server_kx.to_bytes());
+            let exchange_dh = x25519_agree(&ppk, client_public);
+            let shared_secret = x25519_agree(&ppk, client_server_kx);
 
-            let exchange_dh = ppk.diffie_hellman(client_public);
-            let shared_secret = ppk.diffie_hellman(&client_server_kx);
-
-            output[offset..offset + KX_PUB_LEN].clone_from_slice(client_public.as_bytes());
+            output[offset..offset + KX_PUB_LEN].clone_from_slice(&client_public.0);
             offset += KX_PUB_LEN;
 
-            output[offset..offset + KX_PRIV_LEN].clone_from_slice(&ppk.to_bytes());
+            output[offset..offset + KX_PRIV_LEN].clone_from_slice(&ppk.0);
             offset += KX_PRIV_LEN;
 
-            hdr.set_kx(exchange_dh.as_bytes());
+            hdr.set_kx(&exchange_dh.0);
 
             shared_secret
         } else {
-            let ppk = EphemeralSecret::new(OsRng);
-            let exchange_dh = PublicKey::from(&ppk);
-            let shared_secret = ppk.diffie_hellman(&self.server);
+            let (public, secret) = x25519_generate();
+            let shared_secret = x25519_agree(&secret, &self.server);
 
-            hdr.set_kx(exchange_dh.as_bytes());
+            hdr.set_kx(&public.0);
 
             shared_secret
         };
@@ -340,37 +350,38 @@ impl ServerReplier {
 
 pub struct Server {
     suite: Ciphersuite,
-    secret: StaticSecret,
-    public: PublicKey,
+    secret: curve25519::SecretKey,
+    public: curve25519::PublicKey,
 }
 
 impl Server {
     pub fn generate() -> Server {
-        let key = StaticSecret::new(OsRng);
+        let (public, secret) = x25519_generate();
 
         Server {
             suite: Ciphersuite::X25519_AESGCM128,
-            public: PublicKey::from(&key),
-            secret: key,
+            public: public,
+            secret: secret,
         }
     }
 
     pub fn import(private_key: &[u8; KX_PRIV_LEN]) -> Server {
-        let key = StaticSecret::from(*private_key);
+        let secret = curve25519::SecretKey(curve25519::secretkey(private_key).0);
+        let public = secret.get_public();
 
         Server {
             suite: Ciphersuite::X25519_AESGCM128,
-            public: PublicKey::from(&key),
-            secret: key,
+            public: public,
+            secret: secret,
         }
     }
 
     pub fn public_key(&self) -> [u8; KX_PUB_LEN] {
-        self.public.to_bytes()
+        self.public.0
     }
 
     pub fn private_key(&self) -> [u8; KX_PRIV_LEN] {
-        self.secret.to_bytes()
+        self.secret.0
     }
 
     pub fn decrypt_request<'msg>(
@@ -388,7 +399,7 @@ impl Server {
             return Err(Error::UnexpectedResponse);
         }
 
-        let shared_secret = self.secret.diffie_hellman(&PublicKey::from(*hdr.kx()));
+        let shared_secret = x25519_agree(&self.secret, &curve25519::PublicKey(*hdr.kx()));
 
         let keyblock = kdf(hdr.kx(), &shared_secret);
 
@@ -420,19 +431,19 @@ impl Server {
             let proof = &output[..proof_size];
 
             let client_public: [u8; KX_PUB_LEN] = proof[..KX_PUB_LEN].try_into().unwrap();
-            let client_public = PublicKey::from(client_public);
+            let client_public = curve25519::PublicKey(client_public);
 
             let client_temp_priv: [u8; KX_PRIV_LEN] = proof[KX_PUB_LEN..].try_into().unwrap();
-            let client_temp_priv = StaticSecret::from(client_temp_priv);
-            let result = client_temp_priv.diffie_hellman(&client_public);
+            let client_temp_priv = curve25519::secretkey(&client_temp_priv);
+            let result = x25519_agree(&client_temp_priv, &client_public);
 
-            if !bool::from(hdr.kx().ct_eq(result.as_bytes())) {
+            if !bool::from(hdr.kx().ct_eq(&result.0)) {
                 return Err(Error::ClientAuthFailed);
             }
 
             (
                 &output[proof_size..cipher_len],
-                Some(client_public.to_bytes()),
+                Some(client_public.0),
             )
         } else {
             (&output[..cipher_len], None)
