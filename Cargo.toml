@@ -16,5 +16,11 @@ authors = [
 [features]
 
 [dependencies]
+byteorder = "1"
+rand_core = "0.5"
+x25519-dalek = "1"
+aes-gcm = "0.6"
+sha2 = "0.9"
+subtle = "2"
 
 [dev-dependencies]
