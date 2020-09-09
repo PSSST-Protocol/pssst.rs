@@ -1,6 +1,6 @@
 use std::io;
 
-use pssst::{Client, Server, ClientReplyHandler};
+use pssst::{Client, ClientReplyHandler, Server};
 
 extern crate hex;
 use rand_core::{OsRng, RngCore};
@@ -15,14 +15,14 @@ fn get_msg() -> (String, Option<Vec<u8>>) {
         .expect("Failed to read input line");
 
     let parts: Vec<&str> = line.trim().splitn(2, ":").collect();
-    
+
     let tag = String::from(parts[0]);
 
     match parts.get(1) {
         Some(tail) => {
             let decoded = hex::decode(tail).expect("Bad hex in input");
             (tag, Some(decoded))
-        },
+        }
         None => (tag, None),
     }
 }
@@ -64,12 +64,12 @@ fn main() {
             let mut server_key_bytes: [u8; KX_PUB_LEN] = [0; KX_PUB_LEN];
 
             server_key_bytes.copy_from_slice(&value[..KX_PUB_LEN]);
-            
-            let client_noauth_raw = Client::unauthenticated(&server_key_bytes);            
+
+            let client_noauth_raw = Client::unauthenticated(&server_key_bytes);
             let client_auth_raw = Client::generate(&server_key_bytes);
-            let client_key = client_auth_raw.
-                public_key().
-                expect("Authenticated client had no pubic key");
+            let client_key = client_auth_raw
+                .public_key()
+                .expect("Authenticated client had no pubic key");
             emit_msg("CLIENT_KEY", client_key);
 
             {
@@ -80,7 +80,7 @@ fn main() {
                 emit_msg("REQUEST", packet);
                 client_noauth_handler = Some(handler);
             }
-            
+
             {
                 let mut buffer = [0u8; 256];
                 let (packet, handler) = client_auth_raw
@@ -104,7 +104,7 @@ fn main() {
             }
 
             assert_eq!(request_info.client_public, None);
-            
+
             let mut reply_buffer = [0u8; 256];
             let message_length = request_info.message.len();
 
@@ -112,8 +112,8 @@ fn main() {
                 reply_buffer[message_length - 1 - i] = remote_plaintext[i];
             }
 
-            let reply_packet = replier.
-                encrypt_reply(&reply_buffer[..message_length], &mut buffer)
+            let reply_packet = replier
+                .encrypt_reply(&reply_buffer[..message_length], &mut buffer)
                 .expect("Failed to encrypt reply");
             emit_msg("REPLY", &reply_packet);
         } else if tag == "REQUEST_AUTH" {
@@ -126,9 +126,13 @@ fn main() {
                 panic!("Request message was not expected plaintext");
             }
 
-            assert_eq!(request_info.client_public.expect("Authenticated request had no client key"),
-                       &remote_client_key[..]);
-            
+            assert_eq!(
+                request_info
+                    .client_public
+                    .expect("Authenticated request had no client key"),
+                &remote_client_key[..]
+            );
+
             let mut reply_buffer = [0u8; 256];
             let message_length = request_info.message.len();
 
@@ -136,8 +140,8 @@ fn main() {
                 reply_buffer[message_length - 1 - i] = remote_plaintext[i];
             }
 
-            let reply_packet = replier.
-                encrypt_reply(&reply_buffer[..message_length], &mut buffer)
+            let reply_packet = replier
+                .encrypt_reply(&reply_buffer[..message_length], &mut buffer)
                 .expect("Failed to encrypt reply");
             emit_msg("REPLY_AUTH", &reply_packet);
         } else if tag == "REPLY" {
@@ -171,5 +175,5 @@ fn main() {
         } else {
             panic!("Unknown tag: '{}'", tag);
         }
-    }    
+    }
 }

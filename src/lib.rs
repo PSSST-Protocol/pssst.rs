@@ -239,7 +239,7 @@ impl Client {
             Some(public.0)
         } else {
             None
-        }   
+        }
     }
 
     fn packet_size(&self, message_len: usize) -> usize {
