@@ -228,6 +228,14 @@ impl Client {
         }
     }
 
+    pub fn public_key(&self) -> Option<[u8; KX_PUB_LEN]> {
+        if let Some((public, _)) = &self.client_auth {
+            Some(public.0)
+        } else {
+            None
+        }   
+    }
+
     fn packet_size(&self, message_len: usize) -> usize {
         let client_auth_proof_size = if let Some(_) = &self.client_auth {
             KX_PUB_LEN + KX_PRIV_LEN
