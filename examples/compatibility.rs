@@ -33,15 +33,17 @@ fn emit_msg<T: AsRef<[u8]>>(tag: &str, value: T) {
 }
 
 fn main() {
-    println!("Hello world!");
-
     let server = Server::generate();
     let server_pub_bytes = server.public_key();
 
     emit_msg("SERVER_KEY", server_pub_bytes);
 
     let mut plaintext = [0u8; 64];
+    let mut reverse_plaintext = [0u8; 64];
     OsRng.fill_bytes(&mut plaintext);
+    for i in 0..plaintext.len() {
+        reverse_plaintext[plaintext.len() - 1 - i] = plaintext[i];
+    }
 
     let mut remote_plaintext: Vec<u8> = Vec::new();
     let mut remote_client_key: Vec<u8> = Vec::new();
@@ -106,8 +108,7 @@ fn main() {
             let mut reply_buffer = [0u8; 256];
             let message_length = request_info.message.len();
 
-            let i = 0;
-            while i < message_length{
+            for i in 0..message_length {
                 reply_buffer[message_length - 1 - i] = remote_plaintext[i];
             }
 
@@ -131,23 +132,23 @@ fn main() {
             let mut reply_buffer = [0u8; 256];
             let message_length = request_info.message.len();
 
-            let i = 0;
-            while i < message_length{
+            for i in 0..message_length {
                 reply_buffer[message_length - 1 - i] = remote_plaintext[i];
             }
 
             let reply_packet = replier.
                 encrypt_reply(&reply_buffer[..message_length], &mut buffer)
                 .expect("Failed to encrypt reply");
-            emit_msg("REPLY", &reply_packet);
+            emit_msg("REPLY_AUTH", &reply_packet);
         } else if tag == "REPLY" {
             let mut buffer = [0u8; 256];
             let value = optv.expect("Reply message had no body!");
-            let handler = client_noauth_handler.as_ref().expect("Client handler not yet set");
+            let handler = client_noauth_handler.expect("Client handler not yet set");
             let reply_msg = handler
                 .decrypt_reply(&value[..], &mut buffer)
                 .expect("Unable to decrypt reply");
-            assert_eq!(reply_msg, &plaintext[..]);
+            assert_eq!(reply_msg, &reverse_plaintext[..]);
+            client_noauth_handler = None;
             replies += 1;
             if replies == 2 {
                 emit_msg("DONE", b"");
@@ -155,17 +156,20 @@ fn main() {
         } else if tag == "REPLY_AUTH" {
             let mut buffer = [0u8; 256];
             let value = optv.expect("Reply message had no body!");
-            let handler = client_auth_handler.as_ref().expect("Client handler not yet set");
+            let handler = client_auth_handler.expect("Client handler not yet set");
             let reply_msg = handler
                 .decrypt_reply(&value[..], &mut buffer)
                 .expect("Unable to decrypt reply");
-            assert_eq!(reply_msg, &plaintext[..]);
+            assert_eq!(reply_msg, &reverse_plaintext[..]);
+            client_auth_handler = None;
             replies += 1;
             if replies == 2 {
                 emit_msg("DONE", b"");
             }
         } else if tag == "DONE" {
             remote_done = true;
+        } else {
+            panic!("Unknown tag: '{}'", tag);
         }
     }    
 }
