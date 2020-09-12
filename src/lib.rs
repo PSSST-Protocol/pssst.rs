@@ -10,7 +10,7 @@ use aes_gcm::{AeadInPlace, Aes128Gcm, NewAead};
 use byteorder::{BigEndian, ByteOrder};
 use hacl_star::curve25519;
 use rand_core::{OsRng, RngCore};
-use sha2::{Digest, Sha384};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
 use std::convert::TryInto;
@@ -167,29 +167,35 @@ impl ClientReplyHandler {
     }
 }
 
-pub struct KeyBlock([u8; 48]);
+pub struct KeyBlock([u8; 16], [u8; 12], [u8; 12]);
 
 impl KeyBlock {
     fn aes(&self) -> &[u8] {
-        &self.0[..16]
+        &self.0[..]
     }
 
     fn client_nonce(&self) -> &[u8] {
-        &self.0[16..28]
+        &self.1[..]
     }
 
     fn server_nonce(&self) -> &[u8] {
-        &self.0[28..40]
+        &self.2[..]
     }
 }
 
 fn kdf(dh_param: &[u8], shared_secret: &curve25519::PublicKey) -> KeyBlock {
-    let mut kb = KeyBlock([0u8; 48]);
+    let mut kb = KeyBlock([0u8; 16], [0u8; 12], [0u8; 12]);
 
-    let mut h = Sha384::new();
+    let mut h = Sha256::new();
     h.update(dh_param);
     h.update(shared_secret.0);
-    kb.0.clone_from_slice(&h.finalize());
+    let hash_bytes = &h.finalize();
+    kb.0.clone_from_slice(&hash_bytes[..16]);
+    kb.1[..8].clone_from_slice(&hash_bytes[16..24]);
+    kb.1[8..].clone_from_slice(b"RQST");
+    kb.2[..8].clone_from_slice(&hash_bytes[24..32]);
+    kb.2[8..].clone_from_slice(b"RPLY");
+
     kb
 }
 
@@ -225,6 +231,14 @@ impl Client {
             suite: Ciphersuite::X25519_AESGCM128,
             client_auth: Some((public, client_server_kx)),
             server: curve25519::PublicKey(*server),
+        }
+    }
+
+    pub fn public_key(&self) -> Option<[u8; KX_PUB_LEN]> {
+        if let Some((public, _)) = &self.client_auth {
+            Some(public.0)
+        } else {
+            None
         }
     }
 
